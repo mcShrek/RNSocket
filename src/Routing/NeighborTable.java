@@ -4,17 +4,20 @@ import Connect.Protokoll;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static Connect.Protokoll.NEIGHBOR_DEAD_AFTER_MS;
+
+//Tabelle
 public class NeighborTable {
 
 
-    public static final long HEARTBEAT_INTERVAL_MS = Protokoll.HEARTBEAT_INTERVAL_MS;
-    public static final long DEAD_AFTER_MS = Protokoll.NEIGHBOR_DEAD_AFTER_MS;
+
+
 
 
 
     private final Map<NodeId, NeighborEntry> neighbors = new ConcurrentHashMap<>();
 
-    //setzt nachbarn auf alive
+    //setzt nachbarn auf alive, bei allen Paketen neuer eintrag falls nicht da
     public NeighborEntry upsertAlive(NodeId neighbor, long nowMs) {
         NeighborEntry entry = neighbors.get(neighbor);
         if (entry == null) {
@@ -28,13 +31,13 @@ public class NeighborTable {
     }
 
     //bentutzr fürn den bootsrap
-    public NeighborEntry addKnown(NodeId neighbor, long nowMs) {
-        return neighbors.computeIfAbsent(neighbor, n -> new NeighborEntry(n, nowMs, false));
-    }
+//    public NeighborEntry addKnown(NodeId neighbor, long nowMs) {
+//        return neighbors.computeIfAbsent(neighbor, n -> new NeighborEntry(n, nowMs, false));
+//    }
      //bisschen dummm ruft andere methode auf
-    public void markHeard(NodeId neighbor, long nowMs) {
-        upsertAlive(neighbor, nowMs);
-    }
+//    public void markHeard(NodeId neighbor, long nowMs) {
+//        upsertAlive(neighbor, nowMs);
+//    }
 
 
     //kopie zum iterien
@@ -46,7 +49,7 @@ public class NeighborTable {
     public List<NodeId> detectDeaths(long nowMs) {
         List<NodeId> diedNow = new ArrayList<>();
         for (NeighborEntry ne : neighbors.values()) {
-            if (ne.alive && (nowMs - ne.lastHeardMs) > DEAD_AFTER_MS) {
+            if (ne.alive && (nowMs - ne.lastHeardMs) > NEIGHBOR_DEAD_AFTER_MS) {
                 ne.alive = false;
                 diedNow.add(ne.id);
             }
@@ -70,14 +73,14 @@ public class NeighborTable {
             return alive;
         }
 
-        public void markAlive(long now) {
-            this.lastHeardMs = now;
-            this.alive = true;
-        }
-
-        public void markDead() {
-            this.alive = false;
-        }
+//        public void markAlive(long now) {
+//            this.lastHeardMs = now;
+//            this.alive = true;
+//        }
+//
+//        public void markDead() {
+//            this.alive = false;
+//        }
 
         NeighborEntry(NodeId id, long lastHeardMs, boolean alive) {
             this.id = id;

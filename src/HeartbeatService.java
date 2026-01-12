@@ -19,21 +19,15 @@ public class HeartbeatService {
     private final RoutingTable routingTable;
     private final SequenceNumberG seqGen;
     private static final long ROUTING_UPDATE_INTERVAL_MS = Protokoll.ROUTING_UPDATE_INTERVAL_MS;
-    private static final long POISON_PURGE_AFTER_MS = Protokoll.POISON_PURGE_AFTER_MS;
-//    private long lastRoutingUpdateMs = System.currentTimeMillis();
-      private long lastRoutingUpdateMs =0;
+    private static final long POISON_PURGE_AFTER_MS = Protokoll.POISON_DELETE_AFTER_MS;
+    private long lastRoutingUpdateMs =0;
 
-    private final Runnable onRoutingChanged; // callback (z.B. broadcastRoutingUpdate)
+    private final Runnable onRoutingChanged;
 
     private volatile boolean running = false;
     private Thread thread;
 
-    public HeartbeatService(DatagramSocket socket,
-                            NodeId self,
-                            NeighborTable neighborTable,
-                            RoutingTable routingTable,
-                            SequenceNumberG seqGen,
-                            Runnable onRoutingChanged) {
+    public HeartbeatService(DatagramSocket socket, NodeId self, NeighborTable neighborTable, RoutingTable routingTable, SequenceNumberG seqGen, Runnable onRoutingChanged) {
         this.socket = socket;
         this.self = self;
         this.neighborTable = neighborTable;
@@ -59,7 +53,7 @@ public class HeartbeatService {
                     boolean purged = routingTable.purgeExpiredPoisoned(now, POISON_PURGE_AFTER_MS);
                     if (purged) onRoutingChanged.run();
 
-                    // 2) Periodische Routing Updates (Update Timer)
+
                     if (now - lastRoutingUpdateMs >= ROUTING_UPDATE_INTERVAL_MS) {
                         lastRoutingUpdateMs = now;
                         onRoutingChanged.run();
@@ -116,7 +110,6 @@ public class HeartbeatService {
 
         boolean changed = false;
         for (NodeId dead : died) {
-            // nach eurem Connect.Protokoll: routes über dead löschen (oder poison + später löschen)
             changed |= routingTable.poisonRoutesVia(dead, now);
         }
 

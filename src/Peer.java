@@ -16,7 +16,6 @@ import java.util.concurrent.TimeoutException;
 
 
 import static java.lang.System.currentTimeMillis;
-import static java.lang.System.setOut;
 
 public class Peer {
 
@@ -32,8 +31,7 @@ public class Peer {
     //private final FileSender fileSender;
 
     // Duplikaterkennung für MSG / FILE_INFO (du hast SenderSeqId schon)
-    private final ExpiringSet<SenderSeqId> seenMsgs =
-            new ExpiringSet<>(Protokoll.SEEN_TTL_MS, Protokoll.SEEN_PURGE_INTERVAL_MS);
+    private final ExpiringSet<SenderSeqId> seenMsgs = new ExpiringSet<>(Protokoll.SEEN_TTL_MS, Protokoll.SEEN_PURGE_INTERVAL_MS);
 
 
     private final HeartbeatService heartbeatService;
@@ -42,25 +40,22 @@ public class Peer {
 
 
 
-    public Peer(int listenPort, InetAddress selfIpOrNull, InetAddress bootstrapIpOrNull) throws Exception {
+    public Peer(int listenPort, InetAddress selfIpOrNull, InetAddress connectIpOrNull) throws Exception {
 
-        // 1) Self-IP bestimmen (nur wenn nicht explizit übergeben)
+
         InetAddress bindIp;
         if (selfIpOrNull != null) {
             bindIp = selfIpOrNull;
-        } else if (bootstrapIpOrNull != null) {
-            bindIp = determineSelfIpToReach(bootstrapIpOrNull);
-        } else {
-            bindIp = InetAddress.getByName("127.0.0.1");
+        } /*else if (connectIpOrNull != null) {
+            bindIp = determineSelfIpToReach(connectIpOrNull);
+        } */ else {
+            bindIp = InetAddress.getByName("127.0.0.1"); //loopback
         }
 
-        // 2) Socket binden
+
         this.socket = new DatagramSocket(new InetSocketAddress(bindIp, listenPort));
 
-        // optional: nur wenn du im Receiver Loop SocketTimeoutException behandelst!
-        // socket.setSoTimeout(200);
 
-        // 3) Self aus dem Socket ableiten (verhindert Inkonsistenzen)
         int selfIpInt = Header.inetAddressToInt(socket.getLocalAddress());
         int selfPort  = socket.getLocalPort(); // wichtig, falls listenPort=0 wäre
         this.self = new NodeId(selfIpInt, selfPort);
@@ -73,14 +68,14 @@ public class Peer {
         );
         this.heartbeatService.start();
 
-        System.out.println("Peer started on " + self + " (selfIp=" + bindIp.getHostAddress() + ")");
+        System.out.println("Peer start: " + self + " (selfIp=" + bindIp.getHostAddress() + ")");
     }
 
 
 
-     // Bootstrap neighbor hinzufügen + HELLO senden.
 
-    public void bootstrapNeighbor(InetAddress neighborIp, int neighborPort) throws IOException {
+    //join
+    public void connectToNeighbor(InetAddress neighborIp, int neighborPort) throws IOException {
         int ipInt = Header.inetAddressToInt(neighborIp);
         NodeId neighbor = new NodeId(ipInt, neighborPort);
 
@@ -88,16 +83,16 @@ public class Peer {
         sendHelloTo(neighbor);
         broadcastRoutingUpdate();
 
-        System.out.println("Bootstrapped neighbor: " + neighbor);
+        System.out.println("Connect to neighbor: " + neighbor);
     }
 
-    // -------------------- Receiver Loop --------------------
+    // Receiver Loop
 
 
     public void startReceiverLoop() {
         Thread t = new Thread(() -> {
-            byte[] buf = new byte[65507]; // UDP max payload (sicherer als 4096)
-            System.out.println("Receiver loop running...");
+            byte[] buf = new byte[65507];
+            System.out.println("Receiver loop running");
 
             while (!socket.isClosed()) {
                 try {
@@ -113,7 +108,7 @@ public class Peer {
                     int hopPort = dp.getPort();
                     NodeId hopNeighbor = new NodeId(hopIpInt, hopPort);
 
-                    neighborTable.markHeard(hopNeighbor, now);
+                    neighborTable.upsertAlive(hopNeighbor, now);
 
 
                     boolean changedDirect = routingTable.ensureDirectNeighborRoute(hopNeighbor, now);
@@ -143,7 +138,6 @@ public class Peer {
                     }
 
 
-                    // Flow-control: wenn nicht für mich -> forward
 
                     if (!forMe) {
                         forwardIfNeeded(received);
@@ -151,7 +145,6 @@ public class Peer {
                         continue;
                     }
 
-                    // für mich: verarbeiten
                     if (type == MessageType.MSG) {
                         handleMsg(received, dp);
                     }
@@ -166,14 +159,13 @@ public class Peer {
                     } else if (type == MessageType.GOODBYE) {
                         handleGoodbye(received);
                     } else if (type == MessageType.HEARTBEAT) {
-                        // nichts zu tun, markHeard reicht
+                        // nichts zu tun, mach ich oben schon
                     } else {
-                        System.out.println("Received unhandled packet: " + type);
+                        System.out.println("Received undefined packet: " + type);
                     }
 
                     fileReceiver.tick();
                 } catch (SocketTimeoutException timeout) {
-                    // kein Paket angekommen -> trotzdem Timer prüfen
                     fileReceiver.tick();
                     continue;
                 } catch (Exception e) {
@@ -186,7 +178,7 @@ public class Peer {
         t.start();
     }
 
-    // -------------------- Console Loop --------------------
+    // Console Loop
 
     public void runConsoleLoop() {
         Scanner sc = new Scanner(System.in);
@@ -195,8 +187,8 @@ public class Peer {
                 Commands:
                   hello
                   rt
-                  msg <destIp> <destPort> <text>
-                  file <destIp> <destPort> <path>
+                  msg (destIp) (destPort) (text)
+                  file (destIp) (destPort) (path)
                   exit
                 """);
 
@@ -206,7 +198,7 @@ public class Peer {
 
             try {
                 if (line.equalsIgnoreCase("hello")) {
-                    // send HELLO to all alive neighbors
+
                     for (NeighborTable.NeighborEntry ne : neighborTable.snapshot()) {
                         if (!ne.isAlive()) continue;
                         sendHelloTo(ne.id);
@@ -217,7 +209,7 @@ public class Peer {
                     // msg <destIp> <destPort> <text...>
                     String[] parts = line.split(" ", 4);
                     if (parts.length < 4) {
-                        System.out.println("Usage: msg <destIp> <destPort> <text>");
+                        System.out.println("Usage: msg (destIp) (destPort) (text)");
                         continue;
                     }
                     InetAddress destIp = InetAddress.getByName(parts[1]);
@@ -228,17 +220,17 @@ public class Peer {
 
                     InetSocketAddress nextHop = resolveNextHop(destNode);
                     if (nextHop == null) {
-                        System.out.println("No route to dest=" + destNode);
+                        System.out.println("No  known route to dest, check RoutingTable=" + destNode);
                         continue;
                     }
 
                     sendMsgReliable(nextHop.getAddress(), nextHop.getPort(), destIp, destPort, text);
 
                 } else if (line.startsWith("file ")) {
-                    // file <destIp> <destPort> <path>
+
                     String[] parts = line.split(" ", 4);
                     if (parts.length < 4) {
-                        System.out.println("Usage: file <destIp> <destPort> <path>");
+                        System.out.println("Usage: file (destIp) (destPort) (path)");
                         continue;
                     }
                     InetAddress destIp = InetAddress.getByName(parts[1]);
@@ -249,7 +241,7 @@ public class Peer {
 
                     InetSocketAddress nextHop = resolveNextHop(destNode);
                     if (nextHop == null) {
-                        System.out.println("No route to dest=" + destNode);
+                        System.out.println("No  known route to dest, check RoutingTable=" + destNode);
                         continue;
                     }
 
@@ -263,7 +255,7 @@ public class Peer {
             }
         }
 
-        // graceful
+
         try {
             sendGoodbyeToAll();
         } catch (IOException e) {
@@ -275,14 +267,14 @@ public class Peer {
         System.out.println("Peer stopped.");
     }
 
-    // -------------------- MSG sending (reliable) --------------------
+    // MSG sending
     private void sendMsgReliable(InetAddress nextHopIp, int nextHopPort,
                                  InetAddress finalDestIp, int finalDestPort,
                                  String text) throws IOException {
 
         byte[] payload = text.getBytes(StandardCharsets.UTF_8);
 
-        // optional: Protokollregel MSG <= Chunk
+
         if (payload.length > Protokoll.CHUNK_SIZE) {
             throw new IllegalArgumentException("MSG too large (" + payload.length + " bytes). Max=" + Protokoll.CHUNK_SIZE);
         }
@@ -308,11 +300,11 @@ public class Peer {
                     System.out.println("MSG ACK seq=" + seq);
                     return;
                 } else {
-                    // MSG sollte kein NO_ACK bekommen
-                    System.out.println("Unexpected NO_ACK for MSG seq=" + seq);
+
+                    System.out.println("Message should not get NOAck" + seq);
                 }
             } catch (TimeoutException te) {
-                // retry
+
                 System.out.println("MSG timeout seq=" + seq + " (" + attempts + "/" + Protokoll.MAX_RETRIES + ")");
             } catch (Exception e) {
                 throw new IOException("MSG wait failed", e);
@@ -323,9 +315,7 @@ public class Peer {
         System.out.println("MSG give up seq=" + seq);
     }
 
-    private void sendFileReliable(InetAddress nextHopIp, int nextHopPort,
-                                  InetAddress finalDestIp, int finalDestPort,
-                                  java.nio.file.Path file) throws IOException {
+    private void sendFileReliable(InetAddress nextHopIp, int nextHopPort, InetAddress finalDestIp, int finalDestPort, java.nio.file.Path file) throws IOException {
 
         byte[] fileBytes = java.nio.file.Files.readAllBytes(file);
         String filename = file.getFileName().toString();
@@ -341,15 +331,15 @@ public class Peer {
         System.out.println("Sending file '" + filename + "' bytes=" + fileBytes.length +
                 " chunks=" + totalChunks + " frames=" + totalFrames);
 
-        // ====== EINE fileSeq für die komplette Datei ======
+
         long fileSeq = seqGen.next();
 
-        // 1) FILE_INFO reliable (ACK auf fileSeq)
+
         int attempts = 0;
         while (attempts < Protokoll.MAX_RETRIES) {
             attempts++;
 
-            // Re-use derselben seq => immer vorher canceln, sonst duplicate waiter möglich
+
             pending.cancel(fileSeq);
             CompletableFuture<AckEvent> fut = pending.register(fileSeq);
 
@@ -377,13 +367,12 @@ public class Peer {
             throw new IOException("FILE_INFO failed (no ACK).");
         }
 
-        // 2) Frames reliable (stop-and-wait pro FrameIndex, ACK/NO_ACK kommt immer auf fileSeq)
         for (int frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
 
             int start = frameIndex * Protokoll.FRAME_CHUNKS;
             int end = Math.min(start + Protokoll.FRAME_CHUNKS, totalChunks);
 
-            java.util.Set<Integer> missing = new java.util.LinkedHashSet<>();
+            java.util.Set<Integer> missing = new LinkedHashSet<>();
             for (int cid = start; cid < end; cid++) missing.add(cid);
 
             int timeouts = 0;
@@ -392,7 +381,7 @@ public class Peer {
                 pending.cancel(fileSeq);
                 CompletableFuture<AckEvent> fut = pending.register(fileSeq);
 
-                // !!! seq = fileSeq (nicht mehr frameSeq) !!!
+
                 fs.sendMissingChunks(nextHopIp, nextHopPort, finalDestIpInt, finalDestPort,
                         fileSeq, chunks, totalChunks, missing);
 
@@ -433,7 +422,7 @@ public class Peer {
     }
 
 
-    // -------------------- Routing handlers --------------------
+    //  Routing handlers
 
     private void handleRoutingUpdate(Packet received) {
         try {
@@ -456,7 +445,7 @@ public class Peer {
         Header h = received.getHeader();
         NodeId sender = new NodeId(h.getSourceIp(), h.getSourcePort());
 
-        //neu????????
+
         System.out.println("Hello received: " + sender);
         long now = currentTimeMillis();
         neighborTable.upsertAlive(sender, now);
@@ -475,7 +464,7 @@ public class Peer {
         broadcastRoutingUpdate();
     }
 
-    // -------------------- Broadcast routing update --------------------
+    //  Broadcast routing update
 
     private void broadcastRoutingUpdate() {
         for (NeighborTable.NeighborEntry ne : neighborTable.snapshot()) {
@@ -502,7 +491,7 @@ public class Peer {
         socket.send(udp);
     }
 
-    // -------------------- HELLO / GOODBYE sending --------------------
+    // HELLO / GOODBYE sending
 
     private void sendHelloTo(NodeId neighbor) throws IOException {
         byte[] payload = new byte[0];
@@ -534,7 +523,7 @@ public class Peer {
         }
     }
 
-    // -------------------- Forwarding (TTL) --------------------
+    //  Forwarding
 
     private void forwardIfNeeded(Packet received) throws IOException {
         Header h = received.getHeader();
@@ -546,7 +535,7 @@ public class Peer {
             return;
         }
 
-        // TTL decrement
+        // TTL runter
         int ttl = h.getTtl();
         if (ttl <= 0) return;
         int newTtl = ttl - 1;
@@ -565,18 +554,10 @@ public class Peer {
         NodeId nextHop = opt.get().nextHop();
         InetAddress nhAddr = Header.intToInetAddress(nextHop.ip());
 
-        // rebuild header with ttl changed; checksum is for payload only
-        Packet fwd = buildPacket(
-                h.getType(),
-                h.getSequenceNumber(),
-                received.getPayload(),
-                h.getDestinationIp(),
-                h.getDestinationPort(),
-                h.getChunkId(),
-                h.getChunkLength(),
-                (short) newTtl
+
+        Packet fwd = buildPacket(h.getType(), h.getSequenceNumber(), received.getPayload(), h.getDestinationIp(), h.getDestinationPort(), h.getChunkId(), h.getChunkLength(), (short) newTtl
         );
-        // keep original source ip/port for end-to-end identity
+
         fwd.getHeader().setSourceIp(h.getSourceIp());
         fwd.getHeader().setSourcePort(h.getSourcePort());
         fwd.getHeader().setChecksum(h.getChecksum());
@@ -585,14 +566,10 @@ public class Peer {
         DatagramPacket udp = new DatagramPacket(bytes, bytes.length, nhAddr, nextHop.port());
         socket.send(udp);
 
-//        if (h.getType() != MessageType.FILE_CHUNK) {
-//            System.out.println("FORWARD " + h.getType() + " dest=" + dest + " via " + nextHop + " ttl=" + newTtl);
-//        }
 
-        //System.out.println("FORWARD " + h.getType() + " dest=" + dest + " via " + nextHop + " ttl=" + newTtl);
     }
 
-    // -------------------- Helpers --------------------
+    //  Helpers
 
     private Packet buildPacket(MessageType type, long seq, byte[] payload,
                                int destIpInt, int destPort,
@@ -670,14 +647,14 @@ public class Peer {
             System.out.println("dest=" + e.destination() + " nextHop=" + e.nextHop() + " dist=" + e.distance());
         }
     }
-    private static InetAddress determineSelfIpToReach(InetAddress remote) throws IOException {
-        try (DatagramSocket tmp = new DatagramSocket()) {
-            tmp.connect(remote, 9); // Port egal, es wird nichts gesendet
-            return tmp.getLocalAddress();
-        }
-    }
+//    private static InetAddress determineSelfIpToReach(InetAddress remote) throws IOException {
+//        try (DatagramSocket tmp = new DatagramSocket()) {
+//            tmp.connect(remote, 9); // Port egal, es wird nichts gesendet
+//            return tmp.getLocalAddress();
+//        }
+//    }
     private InetSocketAddress resolveNextHop(NodeId finalDest) throws UnknownHostException {
-        // Wenn Ziel ich selbst bin, gibt's keinen NextHop
+
         if (finalDest.ip() == self.ip() && finalDest.port() == self.port()) {
             return null;
         }
@@ -703,7 +680,7 @@ public class Peer {
 
 public static void main(String[] args) throws Exception {
     int listenPort = Integer.parseInt(args[0]);
-    InetAddress selfIp = InetAddress.getByName(args[1]);  // <- NEU
+    InetAddress selfIp = InetAddress.getByName(args[1]);
 
     InetAddress bootstrapIp = null;
     int bootstrapPort = -1;
@@ -715,7 +692,7 @@ public static void main(String[] args) throws Exception {
     Peer peer = new Peer(listenPort, selfIp, bootstrapIp);
     peer.startReceiverLoop();
 
-    if (bootstrapIp != null) peer.bootstrapNeighbor(bootstrapIp, bootstrapPort);
+    if (bootstrapIp != null) peer.connectToNeighbor(bootstrapIp, bootstrapPort);
     peer.runConsoleLoop();
 }
 

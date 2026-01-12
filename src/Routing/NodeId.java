@@ -7,7 +7,7 @@ public final class NodeId {
     private final int port; // uint16 stored in int
 
     public NodeId(int ip, int port) {
-        if (port < 0 || port > 65535) throw new IllegalArgumentException("port gibt es nicht");
+        if (port < 0 || port > 65535) throw new IllegalArgumentException("port is non existing");
         this.ip = ip;
         this.port = port;
     }
@@ -26,6 +26,8 @@ public final class NodeId {
         return Objects.hash(ip, port);
     }
 
+
+    //Ip und Port lesbar ausgeben
     @Override public String toString() {
         int i = ip;
         return ((i >>> 24) & 0xFF) + "." + ((i >>> 16) & 0xFF) + "." + ((i >>> 8) & 0xFF) + "." + (i & 0xFF)

@@ -15,12 +15,6 @@ public class FileSender {
 
 
 
-
-    private static final int CHUNK_SIZE = Protokoll.CHUNK_SIZE;     // 1500 - 20 - 8 - 62 - 150
-    private static final int FRAME_CHUNKS = Protokoll.FRAME_CHUNKS;      // 128 chunks pro frame
-    private static final int ACK_TIMEOUT_MS = Protokoll.ACK_TIMEOUT_MS;
-    private static final int MAX_RETRIES = Protokoll.MAX_RETRIES;
-
     public FileSender(DatagramSocket socket,
                       int localIpInt, int localPort) {
         this.socket = socket;
@@ -29,7 +23,7 @@ public class FileSender {
 
     }
 
-
+    //filoInfo
     public void sendFileInfoOnce(InetAddress nextHopAddr, int nextHopPort,
                                  int finalDestIpInt, int finalDestPort,
                                  long seq, String filename,int totalChunks) throws IOException {
@@ -43,29 +37,8 @@ public class FileSender {
         socket.send(new DatagramPacket(bytes, bytes.length, nextHopAddr, nextHopPort));
     }
 
-//    public void sendMissingChunks(InetAddress nextHopAddr, int nextHopPort,
-//                                  int finalDestIpInt, int finalDestPort,
-//                                  long frameSeq,
-//                                  List<byte[]> chunks,
-//                                  int totalChunks,
-//                                  Set<Integer> chunkIds) throws IOException {
-//        int sent = 0;
-//        for (int chunkId : chunkIds) {
-//            byte[] chunkPayload = chunks.get(chunkId);
-//
-//            Packet chunkPkt = buildPacket(MessageType.FILE_CHUNK, frameSeq, chunkPayload,
-//                    chunkId, totalChunks, finalDestIpInt,finalDestPort);
-//
-//            byte[] bytes = chunkPkt.toBytes();
-//            socket.send(new DatagramPacket(bytes, bytes.length, nextHopAddr, nextHopPort));
-//
-//            sent++;
-//            if (sent % 16 == 0) { // alle 16 Pakete kurz pausieren
-//                try { Thread.sleep(1); } catch (InterruptedException ignored) {}
-//            }
-//        }
-//    }
 
+    //die fehlenden Chunks anwenden
     public void sendMissingChunks(InetAddress nextHopAddr, int nextHopPort,
                                   int finalDestIpInt, int finalDestPort,
                                   long fileSeq,

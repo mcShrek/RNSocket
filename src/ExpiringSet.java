@@ -16,10 +16,7 @@ public final class ExpiringSet<K> {
         this.purgeIntervalMs = purgeIntervalMs;
     }
 
-    /**
-     * @return true, wenn das Key "neu" ist (nicht gesehen oder abgelaufen),
-     *         false, wenn es innerhalb TTL schon gesehen wurde (Duplicate).
-     */
+
     public boolean markIfNew(K key, long nowMs) {
         purgeMaybe(nowMs);
 
@@ -33,20 +30,16 @@ public final class ExpiringSet<K> {
             }
             old[0] = prev;
             if (nowMs - prev >= ttlMs) {
-                // abgelaufen -> als "neu" behandeln und Timestamp erneuern
+
                 return nowMs;
             }
-            // noch gültig -> Duplicate, Timestamp NICHT updaten (optional)
+
             return prev;
         });
 
         return old[0] == -1 || (nowMs - old[0] >= ttlMs);
     }
 
-    public void purgeNow(long nowMs) {
-        seenAt.entrySet().removeIf(e -> nowMs - e.getValue() >= ttlMs);
-        lastPurgeMs.set(nowMs);
-    }
 
     private void purgeMaybe(long nowMs) {
         long last = lastPurgeMs.get();

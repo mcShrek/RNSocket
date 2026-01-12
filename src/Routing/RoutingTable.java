@@ -63,8 +63,10 @@ public class RoutingTable {
             int curDist = current.distance();
             NodeId curHop = current.nextHop();
 
+
+            //gleicher nextHop
             if (curHop.equals(sender)) {
-                // Scenario C: update/maintenance for routes learned via this neighbor
+
                 if (curDist != newDist) {
                     current.update(sender, newDist, nowMs);
                     changed = true;
@@ -73,7 +75,6 @@ public class RoutingTable {
                     current.update(sender, curDist, nowMs);
                 }
 
-                // If it is poisoned, keep it poisoned for now (deletion policy elsewhere)
                 continue;
             }
 
@@ -84,7 +85,6 @@ public class RoutingTable {
 
             }
 
-            // Scenario D: worse and via different next hop => ignore
         }
 
         return changed;
@@ -124,7 +124,7 @@ public class RoutingTable {
         return out;
     }
 
-    // Simple DTO for parsed routing updates
+
     public static final class ReceivedRoute {
         public final NodeId destination;
         public final int distance; // 0..255
@@ -139,18 +139,20 @@ public class RoutingTable {
     public boolean purgeExpiredPoisoned(long nowMs, long purgeAfterMs) {
         int before = table.size();
 
-        // ConcurrentHashMap: removeIf ist safe, Iterator.remove ist es NICHT zuverlässig
+
         table.entrySet().removeIf(e -> {
             NodeId dest = e.getKey();
             RoutingEntry re = e.getValue();
 
             if (dest.equals(self)) return false;                 // self-route nie löschen
             if (re.distance() != INF) return false;              // nur poisoned
-            return (nowMs - re.lastUpdatedMs()) >= purgeAfterMs; // genug "liegen lassen"
+            return (nowMs - re.lastUpdatedMs()) >= purgeAfterMs;
         });
 
         return table.size() != before;
     }
+
+    //nachbarn verarbeiten
     public boolean ensureDirectNeighborRoute(NodeId neighbor, long nowMs) {
         if (neighbor.equals(self)) return false;
 

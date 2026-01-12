@@ -3,7 +3,7 @@ package Routing;
 public final class RoutingEntry {
     private final NodeId destination;
     private volatile NodeId nextHop;   // direct neighbor
-    private volatile int distance;     // 0..255 (uint8)
+    private volatile int distance;     //
     private volatile long lastUpdatedMs;
 
     public RoutingEntry(NodeId destination, NodeId nextHop, int distance, long nowMs) {

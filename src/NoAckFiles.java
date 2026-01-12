@@ -8,7 +8,7 @@ public final class NoAckFiles {
     private NoAckFiles() {}
 
     public static byte[] build(long seq, List<Integer> missingChunkIds) {
-        //hard gecodet
+        //hart gecodet
         if (missingChunkIds.size() > 256) {
             throw new IllegalArgumentException("too many Chunks missing");
         }
