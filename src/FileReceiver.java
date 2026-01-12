@@ -23,7 +23,7 @@ public class FileReceiver {
     // Duplikaterkennung für FILE_INFO (pro Sender+Seq)
     private final ExpiringSet<SenderSeqId> seenFileInfo =
             new ExpiringSet<>(Protokoll.SEEN_TTL_MS, Protokoll.SEEN_PURGE_INTERVAL_MS);
-
+    private static final long COMPLETED_GRACE_MS = 30_000;
 
     public FileReceiver(DatagramSocket socket) {
         this.socket = socket;
@@ -46,8 +46,20 @@ public class FileReceiver {
     }
 
     // Wird im bin.Server-Loop nach jedem Paket aufgerufen: sendet ggf. NO_ACK für abgelaufene Frames für Resend
+//    public void tick() {
+//        long now = System.currentTimeMillis();
+//        for (TransferState ts : transfers.values()) {
+//            try {
+//                ts.checkFrameTimeoutsAndRequestMissing(now);
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//            }
+//        }
+//    }
+
     public void tick() {
         long now = System.currentTimeMillis();
+
         for (TransferState ts : transfers.values()) {
             try {
                 ts.checkFrameTimeoutsAndRequestMissing(now);
@@ -55,7 +67,11 @@ public class FileReceiver {
                 e.printStackTrace();
             }
         }
+
+        // Fertige Transfers nach Grace-Period entfernen
+        transfers.entrySet().removeIf(e -> e.getValue().shouldPurge(now));
     }
+
     //duplikatenerkennung
 //    private void handleFileInfo(Packet pkt, DatagramPacket udp, SenderKey sender) throws IOException {
 //        Header h = pkt.getHeader();
@@ -93,8 +109,14 @@ public class FileReceiver {
 
         TransferState ts = transfers.computeIfAbsent(sender, s -> new TransferState(socket, s));
 
+        if (ts.totalChunks != null && !ts.chunkData.isEmpty() && Objects.equals(ts.currentFileSeq, fileSeq)) {
+            // Transfer läuft schon → NIEMALS resetten, nur ACK senden
+            sendAckFor(h, udp.getAddress(), udp.getPort());
+            return;
+        }
+
         if (first) {
-            ts.startNewFile(filename, totalChunks); //hier unter
+            ts.startNewFile(fileSeq, filename, totalChunks); //hier unter
             System.out.println("FILE_INFO from " + Header.ipToString(sender.ip) + ": " + filename + " totalChunks=" + totalChunks);
         } else {
             System.out.println("Duplicate FILE_INFO ignored (but ACK again) fileSeq=" + fileSeq);
@@ -255,6 +277,12 @@ public class FileReceiver {
         private String filename = "received.bin";
         private Integer totalChunks = null;
 
+        //test neu
+        private boolean completed = false;
+        private long completedAtMs = 0;
+        private Long currentFileSeq = null;   // welche Datei gerade läuft
+
+
         // global chunk store (id -> bytes)
         private final Map<Integer, byte[]> chunkData = new ConcurrentHashMap<>();
 
@@ -269,30 +297,115 @@ public class FileReceiver {
         }
 
         //neue datei
-        void startNewFile(String originalFilename, int totalChunks) {
-            // neues File: reset states
-            this.filename = "received_ " + originalFilename;
+//        void startNewFile(String originalFilename, int totalChunks) {
+//            // neues File: reset states
+//            this.filename = "received_ " + originalFilename;
+//            this.totalChunks = totalChunks;
+//            this.chunkData.clear();
+//            this.frames.clear();
+//        }
+
+
+        void startNewFile(long fileSeq, String originalFilename, int totalChunks) {
+            this.currentFileSeq = fileSeq;
+            this.completed = false;
+            this.completedAtMs = 0;
+
+            this.filename = "received_" + originalFilename;
             this.totalChunks = totalChunks;
+
             this.chunkData.clear();
             this.frames.clear();
         }
 
+
+
+//        void onChunk(long fileSeq, int chunkId, int totalChunks,
+//                     byte[] data, Header originalHeader, InetAddress addr, int port) throws IOException {
+//
+//            if (this.totalChunks == null) this.totalChunks = totalChunks;
+//
+//            // speichern (falls du Duplikate akzeptieren willst, besser putIfAbsent)
+//            chunkData.putIfAbsent(chunkId, data);
+//
+//            int frameIndex = chunkId / FRAME_SIZE;
+//
+//            //alt FrameState fs = frames.computeIfAbsent(frameIndex, idx -> new FrameState(frameIndex, totalChunks));
+//
+//
+//            FrameState fs = frames.computeIfAbsent(frameIndex, i -> new FrameState(i, totalChunks));
+//
+//
+//
+//            fs.lastSeenHeader = originalHeader;
+//            fs.lastUdpAddr = addr;
+//            fs.lastUdpPort = port;
+//
+//            fs.markReceived(chunkId);
+//
+//            if (fs.isComplete()) {
+//                long now = System.currentTimeMillis();
+//
+//                // ACK bei Complete immer schicken (falls ACK verloren ging und Sender retransmitted)
+//                // aber LOG nur einmal
+//                if (!fs.acked) {
+//
+//
+//                    fs.acked = true;
+//                    System.out.println("FRAME complete -> ACK fileSeq=" + fileSeq + " frameIndex=" + frameIndex);
+//                }
+//
+//                // optional: ACK resend drosseln
+//                if (now - fs.lastAckSentMs >= 150) {
+//                    sendAckFor(originalHeader, addr, port);
+//                    fs.lastAckSentMs = now;
+//                }
+//
+//                frames.remove(frameIndex);
+//
+//                if (isFileComplete()) {
+//                    writeFile();
+//                }
+//            }
+//        }
+
+        boolean shouldPurge(long now) {
+            return completed && (now - completedAtMs) > COMPLETED_GRACE_MS;
+        }
+
+        //hallo
         void onChunk(long fileSeq, int chunkId, int totalChunks,
                      byte[] data, Header originalHeader, InetAddress addr, int port) throws IOException {
 
             if (this.totalChunks == null) this.totalChunks = totalChunks;
 
-            // speichern (falls du Duplikate akzeptieren willst, besser putIfAbsent)
+//            // ⭐ NEU: Ignoriere Chunks, wenn die Datei schon komplett ist!
+//            if (isFileComplete()) {
+//                // Datei ist schon fertig, ignoriere verspätete/duplizierte Chunks
+//                return;
+//            }
+
+            if (completed && Objects.equals(currentFileSeq, fileSeq)) {
+                sendAckFor(originalHeader, addr, port);
+                return;
+            }
+
+            // Speichern (putIfAbsent ignoriert Duplikate)
             chunkData.putIfAbsent(chunkId, data);
 
             int frameIndex = chunkId / FRAME_SIZE;
 
-            //alt FrameState fs = frames.computeIfAbsent(frameIndex, idx -> new FrameState(frameIndex, totalChunks));
+            // ⭐ NEU: Prüfe ob dieser Frame schon als "completed" markiert wurde
+            // Wenn ja, ignoriere weitere Chunks für diesen Frame
+            FrameState fs = frames.get(frameIndex);
 
+            if (fs != null && fs.acked) {
+                // Frame wurde schon ACK'd, ignoriere verspätete Chunks
+                return;
+            }
 
-            FrameState fs = frames.computeIfAbsent(frameIndex, i -> new FrameState(i, totalChunks));
-
-
+            // Frame noch nicht komplett oder noch nicht in Map
+            fs = frames.computeIfAbsent(frameIndex, i -> new FrameState(i, totalChunks));
 
             fs.lastSeenHeader = originalHeader;
             fs.lastUdpAddr = addr;
@@ -303,22 +416,19 @@ public class FileReceiver {
             if (fs.isComplete()) {
                 long now = System.currentTimeMillis();
 
-                // ACK bei Complete immer schicken (falls ACK verloren ging und Sender retransmitted)
-                // aber LOG nur einmal
                 if (!fs.acked) {
-
-
                     fs.acked = true;
                     System.out.println("FRAME complete -> ACK fileSeq=" + fileSeq + " frameIndex=" + frameIndex);
                 }
 
-                // optional: ACK resend drosseln
                 if (now - fs.lastAckSentMs >= 150) {
                     sendAckFor(originalHeader, addr, port);
                     fs.lastAckSentMs = now;
                 }
 
-                frames.remove(frameIndex);
+                // ⚠️ NICHT ENTFERNEN! Frame bleibt in Map mit acked=true
+                // So können wir Duplikate erkennen (siehe oben)
+                // frames.remove(frameIndex);  // ← AUSKOMMENTIEREN!
 
                 if (isFileComplete()) {
                     writeFile();
@@ -380,9 +490,12 @@ public class FileReceiver {
             Files.write(Path.of(filename), out.toByteArray());
             System.out.println("Saved file '" + filename + "' bytes=" + out.size());
 
+            completed = true;
+            completedAtMs = System.currentTimeMillis();
+
             chunkData.clear();
             frames.clear();
-            FileReceiver.this.transfers.remove(sender);
+            //FileReceiver.this.transfers.remove(sender);
         }
 
 //        void checkFrameTimeoutsAndRequestMissing(long now) throws IOException {

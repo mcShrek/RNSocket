@@ -16,7 +16,7 @@ public class Protokoll {
 
 
     public static final int FRAME_SIZE = 128;
-    public static final long FRAME_TIMEOUT_MS = 8000;
+    public static final long FRAME_TIMEOUT_MS = 6000;//test
 
     public static final int FRAME_CHUNKS = 128;
 
@@ -29,7 +29,7 @@ public class Protokoll {
     public static final long POISON_PURGE_AFTER_MS = HEARTBEAT_INTERVAL_MS * 3L; // Spec: hb * 3
     public static final long NEIGHBOR_DEAD_AFTER_MS = (HEARTBEAT_INTERVAL_MS * 2) + 1000;
 
-    public static final long SEEN_TTL_MS = 120_000;         // 2 Minuten
+    public static final long SEEN_TTL_MS = 800_000;         //  Minuten bsi file info gelöscht wird
     public static final long SEEN_PURGE_INTERVAL_MS = 30_000; // alle 30s maximal einmal bereinigen
 
 }

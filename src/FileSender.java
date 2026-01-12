@@ -72,6 +72,7 @@ public class FileSender {
                                   List<byte[]> chunks,
                                   int totalChunks,
                                   Set<Integer> chunkIds) throws IOException {
+        //int sent = 0;
 
         for (int chunkId : chunkIds) {
             byte[] chunkPayload = chunks.get(chunkId);
@@ -81,9 +82,23 @@ public class FileSender {
 
             byte[] bytes = chunkPkt.toBytes();
             socket.send(new DatagramPacket(bytes, bytes.length, nextHopAddr, nextHopPort));
+
+            try {
+                Thread.sleep(1);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+
+//            sent++;
+//            if ((sent % 16) == 0) {                 // alle 16 Pakete kurz "Luft holen"
+//                try {
+//                    Thread.sleep(1);
+//                }            // 1 ms
+//                catch (InterruptedException ignored) {
+//                }
+//            }
         }
     }
-
 
     private Packet buildPacket(MessageType type, long seq, byte[] payload, long chunkId, long chunkLength, int destIpInt, int destPort) {
         Header h = new Header();
