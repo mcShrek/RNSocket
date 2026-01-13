@@ -118,8 +118,12 @@ public class RoutingTable {
                 continue;//fix um NAchbarn sich nicht selber zusenden
             }
 
-            int advertised = re.nextHop().equals(neighbor) ? INF : re.distance();
-            out.add(new ReceivedRoute(dest, advertised));
+//            int advertised = re.nextHop().equals(neighbor) ? INF : re.distance();
+//            out.add(new ReceivedRoute(dest, advertised));
+
+            if (re.nextHop().equals(neighbor)) continue;
+
+            out.add(new ReceivedRoute(dest, re.distance()));
         }
         return out;
     }

@@ -30,7 +30,7 @@ public class Peer {
     private final FileReceiver fileReceiver;
     //private final FileSender fileSender;
 
-    // Duplikaterkennung für MSG / FILE_INFO (du hast SenderSeqId schon)
+    // Duplikaterkennung für MSG / FILE_INFO
     private final ExpiringSet<SenderSeqId> seenMsgs = new ExpiringSet<>(Protokoll.SEEN_TTL_MS, Protokoll.SEEN_PURGE_INTERVAL_MS);
 
 
